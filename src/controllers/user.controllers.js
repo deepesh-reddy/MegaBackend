@@ -4,6 +4,7 @@ import {User} from '../models/user.models.js'
 import {uploadOnCloudinary,deleteFromCLoudinary} from '../utils/cloudinary.js'
 import { ApiResponse } from '../utils/ApiResponse.js';
 import 'dotenv/config'
+import jwt from 'jsonwebtoken';
 
 const generateAccessAndRefreshToken = async(userId) =>{
     try {
@@ -55,7 +56,7 @@ const registerUser = asyncHandler(
         let avatar;
         try {
             avatar = await uploadOnCloudinary(avatarLocalPath);
-            console.log('Avatar uploaded',avatar);            
+            // console.log('Avatar uploaded',avatar);            
         } catch (error) {
             console.log('Error uploading avatar', error);            
             throw new ApiError(400,'Avatar file is missing');
@@ -64,7 +65,7 @@ const registerUser = asyncHandler(
         let coverImage;
         try {
             coverImage = await uploadOnCloudinary(coverImageLocalPath);
-            console.log('coverImage uploaded',coverImage);            
+            // console.log('coverImage uploaded',coverImage);            
         } catch (error) {
             console.log('Error uploading coverImage', error);            
             throw new ApiError(400,'coverImage file is missing');
@@ -158,7 +159,62 @@ const loginUser = asyncHandler(
     }
 )
 
+const refreshAccessToken = asyncHandler(
+    async(req,res) => {
+        const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
+        if(!incomingRefreshToken){
+            throw new ApiError(401,'Refresh token is required')
+        }
+        
+        try {
+            const decodedToken = jwt.verify(
+                incomingRefreshToken,
+                process.env.REFRESH_TOKEN_SECRET,
+            )
+            // console.log(decodedToken);
+            const user = await User.findById(decodedToken?._id)
+            if(!user){
+                throw new ApiError(401,'Invalid refresh token')
+            }
+
+            if(incomingRefreshToken !== user?.refreshToken ){
+                throw new ApiError(401,'Refresh token expired')
+            }
+
+            const options = {
+                httpOnly:true,
+                secure: process.env.NODE_ENV === 'production'
+            }
+
+            const { accessToken, refreshToken:newRefreshToken} = await generateAccessAndRefreshToken(user._id)
+
+            return res
+            .status(200)
+            .cookie('accessToken',accessToken,options)
+            .cookie('refreshToken',newRefreshToken,options)
+            .json(new ApiResponse(
+                200,
+                {accessToken,refreshToken:newRefreshToken},
+                'Access token refreshed successfully'
+            ))
+
+        } catch (error) {
+            throw new ApiError(500,'Something went wrong while refreshing access token')
+        }
+    }
+)
+
+const logoutUser = asyncHandler(
+    async(req,res) => {
+        await User.findByIdAndUpdate(
+            //need to come back after middleware
+        )
+    }
+)
+
 export {
     registerUser,
-    loginUser
+    loginUser,
+    logoutUser,
+    refreshAccessToken
 }
